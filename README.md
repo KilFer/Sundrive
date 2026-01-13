@@ -49,7 +49,7 @@ Ensure you have the [Pebble SDK](https://rebble.io/sdk/) installed.
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/sundrive.git
+   git clone https://github.com/KilFer/Sundrive.git
    cd sundrive
    ```
 
@@ -61,7 +61,7 @@ Ensure you have the [Pebble SDK](https://rebble.io/sdk/) installed.
 3. **Install to emulator/phone:**
    ```bash
    # Emulator
-   pebble install --emulator <aplite/basalt/chalk/diorite/emery>
+   pebble install --emulator <aplite/basalt/chalk/diorite/emery/flint>
 
    # Real Device (requires IP)
    pebble install --phone 192.168.1.123

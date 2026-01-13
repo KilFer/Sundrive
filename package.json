@@ -1,0 +1,46 @@
+{
+  "name": "sundrive",
+  "author": "FBelaza",
+  "version": "0.1.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {
+    "@rebble/clay": "^1.0.6"
+  },
+  "pebble": {
+    "displayName": "Sundrive",
+    "uuid": "a0d4723e-13dd-4b63-836d-dc214eae43f3",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery",
+      "flint"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "messageKeys": [
+      "sunrise",
+      "sunset",
+      "civil_twilight_begin",
+      "civil_twilight_end",
+      "nautical_twilight_begin",
+      "nautical_twilight_end",
+      "astronomical_twilight_begin",
+      "astronomical_twilight_end",
+      "date_format_us",
+      "show_day_of_week",
+      "timezone_string",
+      "js_ready"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}

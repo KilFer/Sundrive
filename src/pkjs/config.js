@@ -19,6 +19,16 @@ module.exports = [
         "label": "Show Day of Week",
         "description": "Display day abbreviation (Mo, Tu, We...)",
         "defaultValue": true
+      },
+      {
+        "type": "slider",
+        "messageKey": "step_goal",
+        "label": "Daily Step Goal",
+        "defaultValue": 8000,
+        "min": 0,
+        "max": 20000,
+        "step": 1000,
+        "description": "Set to 0 to disable step tracker"
       }
     ]
   },

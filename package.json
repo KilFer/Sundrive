@@ -37,7 +37,8 @@
       "date_format_us",
       "show_day_of_week",
       "timezone_string",
-      "js_ready"
+      "js_ready",
+      "step_goal"
     ],
     "resources": {
       "media": []

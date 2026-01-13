@@ -21,6 +21,10 @@ typedef struct {
 static DateConfig s_date_config;
 static char s_date_buffer[16];
 
+// Step tracker
+static int s_step_goal = 8000;
+static int s_current_steps = 0;
+
 // Twilight data (minutes since midnight UTC)
 typedef struct {
   int16_t astronomical_twilight_begin;
@@ -40,6 +44,10 @@ static TwilightData s_twilight;
 #define STORAGE_KEY_TWILIGHT 1
 #define STORAGE_KEY_DATE_CONFIG 2
 
+#define STORAGE_KEY_TWILIGHT 1
+#define STORAGE_KEY_DATE_CONFIG 2
+#define STORAGE_KEY_STEP_GOAL 3
+
 // Color palettes for different platforms
 #ifdef PBL_COLOR
   #define COLOR_DAY GColorCyan
@@ -56,6 +64,7 @@ static TwilightData s_twilight;
   #define COLOR_BATTERY_LOW GColorRed
   #define COLOR_CHARGING GColorWhite
   #define COLOR_SEPARATOR GColorWhite
+  #define COLOR_STEP_TRACKER GColorJazzberryJam
 #else
   #define COLOR_DAY GColorWhite
   #define COLOR_CIVIL_TWILIGHT GColorLightGray
@@ -74,9 +83,11 @@ static TwilightData s_twilight;
   #define COLOR_BATTERY_LOW GColorLightGray
   #define COLOR_CHARGING GColorDarkGray
   #define COLOR_SEPARATOR GColorWhite
+  #define COLOR_STEP_TRACKER GColorDarkGray
 #endif
 
 #define BATTERY_RING_WIDTH 10
+#define STEP_TRACKER_WIDTH 10
 #define SEPARATOR_WIDTH 1
 #define TWILIGHT_RING_WIDTH 20
 
@@ -158,6 +169,161 @@ static void update_date_display() {
   }
   
   text_layer_set_text(s_date_layer, s_date_buffer);
+}
+
+// Get current step count
+static void get_step_count() {
+  if (s_step_goal == 0) return; // Disabled
+
+  HealthMetric metric = HealthMetricStepCount;
+  time_t start = time_start_of_today();
+  time_t end = time(NULL);
+
+  // Check the metric has data available for today
+  HealthServiceAccessibilityMask mask = health_service_metric_accessible(metric, start, end);
+
+  if (mask & HealthServiceAccessibilityMaskAvailable) {
+    // Data is available!
+    s_current_steps = (int)health_service_sum_today(metric);
+  } else {
+    // No data available
+    s_current_steps = 0;
+  }
+
+  s_current_steps = 7400;
+}
+
+// Health event handler
+static void health_handler(HealthEventType event, void *context) {
+  if (event == HealthEventMovementUpdate) {
+    get_step_count();
+    if (s_canvas_layer) {
+      layer_mark_dirty(s_canvas_layer);
+    }
+  }
+}
+
+// Draw step tracker
+static void draw_step_tracker(GContext *ctx) {
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Drawing step traker. Steps: %d for limit: %d", (int)s_current_steps ,(int)s_step_goal);
+
+  if (s_step_goal == 0) return; // Disabled
+
+  // Calculate radius: Inside battery ring
+  // Battery ring is at s_radius - TWILIGHT_RING_WIDTH (20) - SEPARATOR_WIDTH (1)
+  // Battery width is 10
+  // So step tracker starts at s_radius - 20 - 1 - 10 - 1 = s_radius - 32
+  int16_t tracker_radius = s_radius - TWILIGHT_RING_WIDTH - SEPARATOR_WIDTH;
+
+  GRect tracker_box = GRect(s_center.x - tracker_radius, s_center.y - tracker_radius,
+                            tracker_radius * 2, tracker_radius * 2);
+
+  // Calculate fill percentage
+  int steps = s_current_steps;
+  if (steps > s_step_goal) steps = s_step_goal;
+  
+  // Angle logic:
+  // 0% -> No draw
+  // 50% -> Bottom-Left (270 deg to 180 deg, filling counter-clockwise properly?)
+  // Wait, standard radial fill goes clockwise usually.
+  // The request says: "left to right; being 0% a non-apearent image, 50% the half bottom-left and 100% the complete"
+  // Left is 270 deg. Right is 90 deg. Bottom is 180 deg.
+  // So we want to fill from Left (270) -> Bottom (180) -> Right (90).
+  // This is Counter-Clockwise? 270 -> 180 is CCW. 180 -> 90 is CCW.
+  // Pebble's graphics_fill_radial fills CLOCKWISE from angle1 to angle2.
+  // So if we want to fill "from left to right passing through bottom":
+  // That path is 270 -> 180 -> 90.
+  // In standard angles (0=North, 90=East, 180=South, 270=West):
+  // West(270) -> South(180) -> East(90).
+  // This is COUNTER-CLOCKWISE direction.
+  
+  // However, usually progress bars fill clockwise. But the user said "from left to right".
+  // Let's assume the visual effect "fills up".
+  // If we fill clockwise from 270 (Left) -> 0 (Top) -> 90 (Right), that's the TOP half.
+  // We want the BOTTOM half.
+  // So we must fill from 90 (Right) to 270 (Left) via 180 (Bottom) IF we were filling "right to left".
+  // But user said "left to right".
+  // 270 (Left) -> 180 (Bottom) -> 90 (Right).
+  // This is CCW.
+  // Pebble `graphics_fill_radial` fills from `angle_start` to `angle_end` CLOCKWISE.
+  // So we can't fill a single arc from 270 to 90 CCW using one call if we assume start < end implies CW.
+  // Actually start and end are just angles. It usually fills from start to end in CW direction.
+  // To fill CCW from 270 to 90, we are effectively filling CW from 90 to 270? No that's the top half.
+  // To draw a CCW arc from 270 to 90:
+  // We want the segment that includes 180.
+  // So we want the arc defined by angles [90, 270]? No, that's top.
+  // The angles are 0=Top, 0x4000=Right, 0x8000=Bottom, 0xC000=Left.
+  // We want to fill starting at Left (0xC000).
+  // If 50% (Bottom-Left quadrant): Left(270) to Bottom(180).
+  // This is 270 -> 180.
+  // If we draw CW from 270 to 180, we cover Top and Right. That's wrong.
+  // We need to draw CW from 180 to 270? That covers Bottom-Left quadrant!
+  // So "50% the half bottom-left" means drawing the arc between 180 and 270.
+  // But strictly "filling from left to right" implies the leading edge moves from Left towards Right.
+  // 0%: nothing.
+  // 10%: valid segment near Left.
+  // 50%: segment from Left to Bottom.
+  // 100%: segment from Left to Right (via Bottom).
+  
+  // So strictly speaking:
+  // Start point is always Left (270 deg / 0xC000).
+  // End point moves.
+  // But wait, if I define start=270 and end=180, and draw CW, I get 270->0->90->180 (3/4 circle). Wrong.
+  // If I draw CW from 180 to 270, I get the bottom-left quadrant.
+  // So to "fill from left", I should keep the '270' as the END of the CW fill?
+  // Let's visualize.
+  // We want the pixels between 270 and X to be lit.
+  // Where X moves from 270 towards 90 (CCW).
+  // 1% -> 269 deg (approx).
+  // ...
+  // 50% -> 180 deg (Bottom).
+  // ...
+  // 100% -> 90 deg (Right).
+  
+  // So the lit arc is always the interval [X, 270] (if treating as CW from X to 270).
+  // Example: 50% -> X=180. Draw CW from 180 to 270. This lights up Bottom-Left. Correct.
+  // Example: 100% -> X=90. Draw CW from 90 to 270. This lights up Bottom-Right + Bottom-Left. Correct.
+  // Example: 1% -> X=just below 270. Draw CW from X to 270. Correct.
+  
+  // So we calculate the "Start Angle" X based on percentage, and End Angle is always 270.
+  // Total span is 180 degrees (from 90 to 270).
+  // Wait, 90 to 270 is 180 degrees span.
+  // Percentage p (0..1).
+  // Angle span = p * 180 degrees.
+  // Start Angle X = 270 - (p * 180).
+  // Check:
+  // p=0 -> X=270. Draw 270 to 270 (Empty).
+  // p=0.5 -> X=270 - 90 = 180. Draw 180 to 270. (Bottom-Left). Correct.
+  // p=1.0 -> X=270 - 180 = 90. Draw 90 to 270. (Bottom half). Correct.
+  
+  // So:
+  // const int32_t TRACKER_END = DEG_TO_TRIGANGLE(270);
+  // int32_t span = (steps * (TRIG_MAX_ANGLE / 2)) / s_step_goal; // 180 degrees is MAX/2
+  // int32_t start_angle = TRACKER_END - span;
+  // graphics_fill_radial(ctx, tracker_box, ..., start_angle, TRACKER_END);
+  
+  int32_t angle_270 = DEG_TO_TRIGANGLE(270);
+  int32_t max_span = TRIG_MAX_ANGLE / 2; // 180 degrees
+  
+  // Calculate span based on percentage
+  // Use long long to avoid overflow if needed, but int should suffice for these ranges
+  int32_t current_span = (int32_t)steps * max_span / s_step_goal;
+  
+  // Handle overflow if steps > goal
+  if (current_span > max_span) current_span = max_span;
+
+  // Start angle moves backwards from 270
+  int32_t start_angle = angle_270 - current_span;
+  
+  // If start_angle becomes negative (e.g. 90deg is positive, but intermediate math might wrap?)
+  // Pebble angles are normalized usually... but verify subtraction.
+  // DEG_TO_TRIGANGLE(270) is roughly 49152 (0xC000).
+  // Max span (180) is 32768 (0x8000).
+  // 0xC000 - 0x8000 = 0x4000 (16384) -> 90 degrees. Correct.
+  
+  graphics_context_set_fill_color(ctx, COLOR_STEP_TRACKER);
+  graphics_fill_radial(ctx, tracker_box, GOvalScaleModeFitCircle, STEP_TRACKER_WIDTH, 
+                      start_angle, angle_270);
 }
 
 // Draw battery indicator
@@ -357,6 +523,16 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   // Draw battery indicator (inner ring - 10 pixels)
   draw_battery_indicator(ctx);
   
+  // Draw separator between battery and step tracker
+  int16_t step_separator_radius = s_radius - TWILIGHT_RING_WIDTH - SEPARATOR_WIDTH - BATTERY_RING_WIDTH - SEPARATOR_WIDTH;
+  GRect step_sep_box = GRect(s_center.x - step_separator_radius, s_center.y - step_separator_radius,
+                            step_separator_radius * 2, step_separator_radius * 2);
+  graphics_context_set_fill_color(ctx, COLOR_SEPARATOR);
+  graphics_fill_radial(ctx, step_sep_box, GOvalScaleModeFitCircle, SEPARATOR_WIDTH, 0, TRIG_MAX_ANGLE);
+
+  // Draw step tracker
+  draw_step_tracker(ctx);
+  
   // Draw hour marks
   draw_hour_marks(ctx);
   
@@ -446,6 +622,9 @@ static void send_timezone_to_js() {
   AppMessageResult result = app_message_outbox_begin(&out_iter);
   if (result == APP_MSG_OK) {
     dict_write_cstring(out_iter, MESSAGE_KEY_timezone_string, timezone_name);
+    
+    // Also send step goal request/confirm if valid?
+    // Actually the JS handles logic.
     app_message_outbox_send();
   } else {
     APP_LOG(APP_LOG_LEVEL_ERROR, "Error preparing outbox: %d", (int)result);
@@ -479,6 +658,16 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     s_date_config.show_day_of_week = show_day_tuple->value->int32 == 1;
     config_changed = true;
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Show day of week: %d", s_date_config.show_day_of_week);
+  }
+  
+  // Read step goal
+  Tuple *step_goal_tuple = dict_find(iter, MESSAGE_KEY_step_goal);
+  if (step_goal_tuple) {
+    s_step_goal = (int)step_goal_tuple->value->int32;
+    persist_write_int(STORAGE_KEY_STEP_GOAL, s_step_goal);
+    get_step_count(); // Update steps with new goal (enable/disable check)
+    if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Step goal updated: %d", s_step_goal);
   }
   
   if (config_changed) {
@@ -598,6 +787,21 @@ static void init(void) {
   if (persist_exists(STORAGE_KEY_TWILIGHT)) {
     persist_read_data(STORAGE_KEY_TWILIGHT, &s_twilight, sizeof(TwilightData));
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Loaded twilight data from storage");
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Loaded twilight data from storage");
+  }
+  
+  // Load step goal
+  if (persist_exists(STORAGE_KEY_STEP_GOAL)) {
+    s_step_goal = persist_read_int(STORAGE_KEY_STEP_GOAL);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Loaded step goal: %d", s_step_goal);
+  }
+  
+  // Subscribe to health events
+  if (health_service_events_subscribe(health_handler, NULL)) {
+    // Force initial update
+    get_step_count();
+  } else {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Health not available!");
   }
   
   // Register AppMessage handlers
@@ -627,6 +831,7 @@ static void init(void) {
 // App deinitialization
 static void deinit(void) {
   tick_timer_service_unsubscribe();
+  health_service_events_unsubscribe();
   window_destroy(s_window);
 }
 

@@ -375,7 +375,7 @@ static void draw_hour_marks(GContext *ctx) {
     
     bool is_major = (i % 6 == 0);
     
-    if (true && is_major) { // s_show_hour_numbers
+    if (s_show_hour_numbers && is_major) {
       char *text = "";
       
       switch (i) {

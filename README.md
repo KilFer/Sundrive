@@ -2,9 +2,7 @@
 
 ![Sundrive Banner](screenshots/banner.jpg)
 
-<!--
-![Sundrive Screenshot](screenshots/screenshot-1.png)
--->
+
 
 A unique Pebble watchface that visualizes the day's progression on a 24-hour analog clock. Sundrive elegantly displays daylight, twilight, and night phases, providing an intuitive sense of time relative to the sun.
 
@@ -23,6 +21,16 @@ A unique Pebble watchface that visualizes the day's progression on a 24-hour ana
   - **Rectangular** (Classic, Steel, Time, Time Steel, 2, 2SE)
   - **Monochrome & Color** displays.
 - **Battery Efficient**: Caches location and twilight data to minimize API calls and battery usage.
+- **Step Tracker**:
+  - Unobtrusive inner ring visualizer.
+  - Configurable daily goal (default 8000 steps).
+  - Shows progress relative to your goal.
+
+## Screenshots
+
+| Basalt (Color) | Aplite (B/W) | Chalk (Round) |
+|:---:|:---:|:---:|
+| ![Basalt](screenshots/screenshot_basalt.png) | ![Aplite](screenshots/screenshot_aplite.png) | ![Chalk](screenshots/screenshot_chalk.png) |
 
 ## How It Works
 

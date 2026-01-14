@@ -38,7 +38,8 @@
       "show_day_of_week",
       "timezone_string",
       "js_ready",
-      "step_goal"
+      "step_goal",
+      "show_hour_numbers"
     ],
     "resources": {
       "media": [

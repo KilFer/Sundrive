@@ -26,8 +26,9 @@ static DateConfig s_date_config;
 static char s_date_buffer[16];
 
 // Step tracker
-static int s_step_goal = 8000;
+static int s_step_goal = 8000; 
 static int s_current_steps = 0;
+static bool s_show_hour_numbers = false;
 
 // Twilight data (minutes since midnight UTC)
 typedef struct {
@@ -51,6 +52,7 @@ static TwilightData s_twilight;
 #define STORAGE_KEY_TWILIGHT 1
 #define STORAGE_KEY_DATE_CONFIG 2
 #define STORAGE_KEY_STEP_GOAL 3
+#define STORAGE_KEY_SHOW_HOUR_NUMBERS 4
 
 // Color palettes for different platforms
 #ifdef PBL_COLOR
@@ -108,11 +110,11 @@ static int32_t minutes_to_angle(int minutes) {
 }
 
 // Get current time in minutes since midnight
-static int get_current_minutes() {
-  time_t now = time(NULL);
-  struct tm *t = localtime(&now);
-  return t->tm_hour * 60 + t->tm_min;
-}
+//static int get_current_minutes() {
+//  time_t now = time(NULL);
+//  struct tm *t = localtime(&now);
+//  return t->tm_hour * 60 + t->tm_min;
+//}
 
 // Determine period type based on current time
 typedef enum {
@@ -194,7 +196,7 @@ static void get_step_count() {
     s_current_steps = 0;
   }
 
-  s_current_steps = 2700;
+  // Local test: s_current_steps = 2700;
 }
 
 // Health event handler
@@ -209,7 +211,7 @@ static void health_handler(HealthEventType event, void *context) {
 
 // Draw step tracker
 static void draw_step_tracker(GContext *ctx) {
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "Drawing step traker. Steps: %d for limit: %d", (int)s_current_steps ,(int)s_step_goal);
+  // APP_LOG(APP_LOG_LEVEL_DEBUG, "Drawing step traker. Steps: %d for limit: %d", (int)s_current_steps ,(int)s_step_goal);
 
   if (s_step_goal == 0) return; // Disabled
 
@@ -226,14 +228,11 @@ static void draw_step_tracker(GContext *ctx) {
   int32_t angle_270 = DEG_TO_TRIGANGLE(270);
   int32_t max_span = TRIG_MAX_ANGLE / 2; // 180 degrees
   
-  // Calculate span based on percentage
-  // Use long long to avoid overflow if needed, but int should suffice for these ranges
   int32_t current_span = (int32_t)steps * max_span / s_step_goal;
   
   // Handle overflow if steps > goal
   if (current_span > max_span) current_span = max_span;
 
-  // Start angle moves backwards from 270
   int32_t start_angle = angle_270 - current_span;
   
   
@@ -374,20 +373,70 @@ static void draw_hour_marks(GContext *ctx) {
   for (int i = 0; i < 24; i++) {
     int32_t angle = (i * TRIG_MAX_ANGLE) / 24;
     
-    // Different length for major marks (0, 6, 12, 18)
-    int16_t inner_radius = (i % 6 == 0) ? s_radius - 15 : s_radius - 7;
+    bool is_major = (i % 6 == 0);
     
-    GPoint outer = {
-      .x = s_center.x + (sin_lookup(angle) * s_radius / TRIG_MAX_RATIO),
-      .y = s_center.y + (-cos_lookup(angle) * s_radius / TRIG_MAX_RATIO)
-    };
-    
-    GPoint inner = {
-      .x = s_center.x + (sin_lookup(angle) * inner_radius / TRIG_MAX_RATIO),
-      .y = s_center.y + (-cos_lookup(angle) * inner_radius / TRIG_MAX_RATIO)
-    };
-    
-    graphics_draw_line(ctx, outer, inner);
+    if (true && is_major) { // s_show_hour_numbers
+      char *text = "";
+      
+      switch (i) {
+        case 0: // Noon (12)
+          text = "12";
+          break;
+        case 6: // 18h
+          text = "18";
+          break;
+        case 12: // Midnight (0)
+          text = "0";
+          break;
+        case 18: // 6h
+          text = "6";
+          break;
+      }
+      
+      // Calculate position
+      // Position needs to be further in than the ticks to fit
+      int16_t dist = s_radius - 12; // Adjust distance
+      GPoint pos = {
+        .x = s_center.x + (sin_lookup(angle) * dist / TRIG_MAX_RATIO),
+        .y = s_center.y + (-cos_lookup(angle) * dist / TRIG_MAX_RATIO)
+      };
+      
+      GRect rect = GRect(pos.x - 10, pos.y - 10, 20, 20); // 20x20 box
+      
+      // Draw Shadow (Black) at offset +1,+1
+      GRect shadow_rect = GRect(rect.origin.x + 1, rect.origin.y + 1, rect.size.w, rect.size.h);
+      graphics_context_set_text_color(ctx, GColorBlack);
+      graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), shadow_rect, 
+                         GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+
+      // Draw second shadow (Black) at offset -1,-1
+      shadow_rect = GRect(rect.origin.x - 1, rect.origin.y - 1, rect.size.w, rect.size.h);
+      graphics_context_set_text_color(ctx, GColorBlack);
+      graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), shadow_rect, 
+                         GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+
+      // Draw Text (White)
+      graphics_context_set_text_color(ctx, GColorWhite);
+      graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), rect, 
+                         GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                         
+    } else {
+      // Draw tick as before
+      
+      int16_t inner_radius = (is_major) ? s_radius - 15 : s_radius - 7;
+      
+      GPoint outer = {
+        .x = s_center.x + (sin_lookup(angle) * s_radius / TRIG_MAX_RATIO),
+        .y = s_center.y + (-cos_lookup(angle) * s_radius / TRIG_MAX_RATIO)
+      };
+      
+      GPoint inner = {
+        .x = s_center.x + (sin_lookup(angle) * inner_radius / TRIG_MAX_RATIO),
+        .y = s_center.y + (-cos_lookup(angle) * inner_radius / TRIG_MAX_RATIO)
+      };
+      
+      graphics_draw_line(ctx, outer, inner);
+    }
   }
 }
 
@@ -457,7 +506,6 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   
   if (s_battery_icon_bitmap) {
     // Console Log
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Printing Battery icon");
     GRect bounds = gbitmap_get_bounds(s_battery_icon_bitmap);
     GSize size = bounds.size;
     int16_t icon_offset = s_radius - 42;
@@ -618,6 +666,15 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Step goal updated: %d", s_step_goal);
   }
+
+  // Read show hour numbers
+  Tuple *hour_numbers_tuple = dict_find(iter, MESSAGE_KEY_show_hour_numbers);
+  if (hour_numbers_tuple) {
+    s_show_hour_numbers = (hour_numbers_tuple->value->int32 == 1);
+    persist_write_bool(STORAGE_KEY_SHOW_HOUR_NUMBERS, s_show_hour_numbers);
+    if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Show Hour Numbers: %d", s_show_hour_numbers);
+  }
   
   if (config_changed) {
     persist_write_data(STORAGE_KEY_DATE_CONFIG, &s_date_config, sizeof(DateConfig));
@@ -756,6 +813,12 @@ static void init(void) {
   if (persist_exists(STORAGE_KEY_STEP_GOAL)) {
     s_step_goal = persist_read_int(STORAGE_KEY_STEP_GOAL);
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Loaded step goal: %d", s_step_goal);
+  }
+
+  // Load show_hour_numbers
+  if (persist_exists(STORAGE_KEY_SHOW_HOUR_NUMBERS)) {
+    s_show_hour_numbers = persist_read_bool(STORAGE_KEY_SHOW_HOUR_NUMBERS);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Loaded show_hour_numbers: %d", s_show_hour_numbers);
   }
   
   // Subscribe to health events

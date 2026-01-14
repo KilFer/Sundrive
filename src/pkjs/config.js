@@ -21,6 +21,13 @@ module.exports = [
         "defaultValue": true
       },
       {
+        "type": "toggle",
+        "messageKey": "show_hour_numbers",
+        "label": "Show Hour Numbers",
+        "description": "Show 0, 6, 12, 18 instead of ticks",
+        "defaultValue": false
+      },
+      {
         "type": "slider",
         "messageKey": "step_goal",
         "label": "Daily Step Goal",

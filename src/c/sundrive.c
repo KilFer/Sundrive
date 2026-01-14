@@ -12,6 +12,10 @@ static GPoint s_center;
 static int16_t s_radius;
 static bool s_is_round;
 
+// Icons
+static GBitmap *s_battery_icon_bitmap;
+static GBitmap *s_steps_icon_bitmap;
+
 // Date configuration
 typedef struct {
   bool date_format_us;      // false = DD/MM, true = MM/DD
@@ -190,7 +194,7 @@ static void get_step_count() {
     s_current_steps = 0;
   }
 
-  s_current_steps = 7400;
+  s_current_steps = 2700;
 }
 
 // Health event handler
@@ -210,9 +214,6 @@ static void draw_step_tracker(GContext *ctx) {
   if (s_step_goal == 0) return; // Disabled
 
   // Calculate radius: Inside battery ring
-  // Battery ring is at s_radius - TWILIGHT_RING_WIDTH (20) - SEPARATOR_WIDTH (1)
-  // Battery width is 10
-  // So step tracker starts at s_radius - 20 - 1 - 10 - 1 = s_radius - 32
   int16_t tracker_radius = s_radius - TWILIGHT_RING_WIDTH - SEPARATOR_WIDTH;
 
   GRect tracker_box = GRect(s_center.x - tracker_radius, s_center.y - tracker_radius,
@@ -221,86 +222,6 @@ static void draw_step_tracker(GContext *ctx) {
   // Calculate fill percentage
   int steps = s_current_steps;
   if (steps > s_step_goal) steps = s_step_goal;
-  
-  // Angle logic:
-  // 0% -> No draw
-  // 50% -> Bottom-Left (270 deg to 180 deg, filling counter-clockwise properly?)
-  // Wait, standard radial fill goes clockwise usually.
-  // The request says: "left to right; being 0% a non-apearent image, 50% the half bottom-left and 100% the complete"
-  // Left is 270 deg. Right is 90 deg. Bottom is 180 deg.
-  // So we want to fill from Left (270) -> Bottom (180) -> Right (90).
-  // This is Counter-Clockwise? 270 -> 180 is CCW. 180 -> 90 is CCW.
-  // Pebble's graphics_fill_radial fills CLOCKWISE from angle1 to angle2.
-  // So if we want to fill "from left to right passing through bottom":
-  // That path is 270 -> 180 -> 90.
-  // In standard angles (0=North, 90=East, 180=South, 270=West):
-  // West(270) -> South(180) -> East(90).
-  // This is COUNTER-CLOCKWISE direction.
-  
-  // However, usually progress bars fill clockwise. But the user said "from left to right".
-  // Let's assume the visual effect "fills up".
-  // If we fill clockwise from 270 (Left) -> 0 (Top) -> 90 (Right), that's the TOP half.
-  // We want the BOTTOM half.
-  // So we must fill from 90 (Right) to 270 (Left) via 180 (Bottom) IF we were filling "right to left".
-  // But user said "left to right".
-  // 270 (Left) -> 180 (Bottom) -> 90 (Right).
-  // This is CCW.
-  // Pebble `graphics_fill_radial` fills from `angle_start` to `angle_end` CLOCKWISE.
-  // So we can't fill a single arc from 270 to 90 CCW using one call if we assume start < end implies CW.
-  // Actually start and end are just angles. It usually fills from start to end in CW direction.
-  // To fill CCW from 270 to 90, we are effectively filling CW from 90 to 270? No that's the top half.
-  // To draw a CCW arc from 270 to 90:
-  // We want the segment that includes 180.
-  // So we want the arc defined by angles [90, 270]? No, that's top.
-  // The angles are 0=Top, 0x4000=Right, 0x8000=Bottom, 0xC000=Left.
-  // We want to fill starting at Left (0xC000).
-  // If 50% (Bottom-Left quadrant): Left(270) to Bottom(180).
-  // This is 270 -> 180.
-  // If we draw CW from 270 to 180, we cover Top and Right. That's wrong.
-  // We need to draw CW from 180 to 270? That covers Bottom-Left quadrant!
-  // So "50% the half bottom-left" means drawing the arc between 180 and 270.
-  // But strictly "filling from left to right" implies the leading edge moves from Left towards Right.
-  // 0%: nothing.
-  // 10%: valid segment near Left.
-  // 50%: segment from Left to Bottom.
-  // 100%: segment from Left to Right (via Bottom).
-  
-  // So strictly speaking:
-  // Start point is always Left (270 deg / 0xC000).
-  // End point moves.
-  // But wait, if I define start=270 and end=180, and draw CW, I get 270->0->90->180 (3/4 circle). Wrong.
-  // If I draw CW from 180 to 270, I get the bottom-left quadrant.
-  // So to "fill from left", I should keep the '270' as the END of the CW fill?
-  // Let's visualize.
-  // We want the pixels between 270 and X to be lit.
-  // Where X moves from 270 towards 90 (CCW).
-  // 1% -> 269 deg (approx).
-  // ...
-  // 50% -> 180 deg (Bottom).
-  // ...
-  // 100% -> 90 deg (Right).
-  
-  // So the lit arc is always the interval [X, 270] (if treating as CW from X to 270).
-  // Example: 50% -> X=180. Draw CW from 180 to 270. This lights up Bottom-Left. Correct.
-  // Example: 100% -> X=90. Draw CW from 90 to 270. This lights up Bottom-Right + Bottom-Left. Correct.
-  // Example: 1% -> X=just below 270. Draw CW from X to 270. Correct.
-  
-  // So we calculate the "Start Angle" X based on percentage, and End Angle is always 270.
-  // Total span is 180 degrees (from 90 to 270).
-  // Wait, 90 to 270 is 180 degrees span.
-  // Percentage p (0..1).
-  // Angle span = p * 180 degrees.
-  // Start Angle X = 270 - (p * 180).
-  // Check:
-  // p=0 -> X=270. Draw 270 to 270 (Empty).
-  // p=0.5 -> X=270 - 90 = 180. Draw 180 to 270. (Bottom-Left). Correct.
-  // p=1.0 -> X=270 - 180 = 90. Draw 90 to 270. (Bottom half). Correct.
-  
-  // So:
-  // const int32_t TRACKER_END = DEG_TO_TRIGANGLE(270);
-  // int32_t span = (steps * (TRIG_MAX_ANGLE / 2)) / s_step_goal; // 180 degrees is MAX/2
-  // int32_t start_angle = TRACKER_END - span;
-  // graphics_fill_radial(ctx, tracker_box, ..., start_angle, TRACKER_END);
   
   int32_t angle_270 = DEG_TO_TRIGANGLE(270);
   int32_t max_span = TRIG_MAX_ANGLE / 2; // 180 degrees
@@ -315,11 +236,6 @@ static void draw_step_tracker(GContext *ctx) {
   // Start angle moves backwards from 270
   int32_t start_angle = angle_270 - current_span;
   
-  // If start_angle becomes negative (e.g. 90deg is positive, but intermediate math might wrap?)
-  // Pebble angles are normalized usually... but verify subtraction.
-  // DEG_TO_TRIGANGLE(270) is roughly 49152 (0xC000).
-  // Max span (180) is 32768 (0x8000).
-  // 0xC000 - 0x8000 = 0x4000 (16384) -> 90 degrees. Correct.
   
   graphics_context_set_fill_color(ctx, COLOR_STEP_TRACKER);
   graphics_fill_radial(ctx, tracker_box, GOvalScaleModeFitCircle, STEP_TRACKER_WIDTH, 
@@ -532,6 +448,39 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
   // Draw step tracker
   draw_step_tracker(ctx);
+
+  // Draw Icons
+  // Inner ring edge is at s_radius - 20 (twilight) - 1 (sep) - 10 (battery/step) = s_radius - 31
+  // We want to position icons just inside this ring.
+  // Let's place them at s_radius - 31 - padding (e.g. 2px) - half_icon_height
+  // Using a fixed offset from center for simplicity: s_radius - 42 seems safe to start.
+  
+  if (s_battery_icon_bitmap) {
+    // Console Log
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Printing Battery icon");
+    GRect bounds = gbitmap_get_bounds(s_battery_icon_bitmap);
+    GSize size = bounds.size;
+    int16_t icon_offset = s_radius - 42;
+    // Battery at top (12 o'clock)
+    GRect target = GRect(s_center.x - size.w / 2, s_center.y - icon_offset - size.h / 2, size.w, size.h);
+    
+    graphics_context_set_compositing_mode(ctx, GCompOpSet);
+    graphics_draw_bitmap_in_rect(ctx, s_battery_icon_bitmap, target);
+  }
+
+  if (s_steps_icon_bitmap && s_step_goal > 0) {
+    GRect bounds = gbitmap_get_bounds(s_steps_icon_bitmap);
+    GSize size = bounds.size;
+    int16_t icon_offset = s_radius - 42;
+    // Steps at bottom (6 o'clock)
+    GRect target = GRect(s_center.x - size.w / 2, s_center.y + icon_offset - size.h / 2, size.w, size.h);
+    
+    graphics_context_set_compositing_mode(ctx, GCompOpSet);
+    graphics_draw_bitmap_in_rect(ctx, s_steps_icon_bitmap, target);
+  }
+  
+  // Reset compositing mode
+  graphics_context_set_compositing_mode(ctx, GCompOpAssign);
   
   // Draw hour marks
   draw_hour_marks(ctx);
@@ -759,6 +708,10 @@ static void window_load(Window *window) {
   
   APP_LOG(APP_LOG_LEVEL_DEBUG, "Window loaded: center=(%d,%d), radius=%d, round=%d", 
           s_center.x, s_center.y, s_radius, s_is_round);
+
+  // Load resources
+  s_battery_icon_bitmap = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_BATTERY);
+  s_steps_icon_bitmap = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_STEPS);
 }
 
 static void window_unload(Window *window) {
@@ -766,6 +719,15 @@ static void window_unload(Window *window) {
   layer_destroy(s_canvas_layer);
   s_canvas_layer = NULL;
   s_date_layer = NULL;
+
+  if (s_battery_icon_bitmap) {
+    gbitmap_destroy(s_battery_icon_bitmap);
+    s_battery_icon_bitmap = NULL;
+  }
+  if (s_steps_icon_bitmap) {
+    gbitmap_destroy(s_steps_icon_bitmap);
+    s_steps_icon_bitmap = NULL;
+  }
 }
 
 // App initialization

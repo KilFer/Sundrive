@@ -41,7 +41,20 @@
       "step_goal"
     ],
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_BATTERY",
+          "file": "images/battery.png",
+          "memoryFormat": "1Bit"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_STEPS",
+          "file": "images/steps.png",
+          "memoryFormat": "1Bit"
+        }
+      ]
     }
   }
 }
